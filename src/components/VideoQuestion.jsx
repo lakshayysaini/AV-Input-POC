@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import Webcam from 'react-webcam';
 import { FaVideo, FaStop } from 'react-icons/fa';
+import { storeMediaBlob } from '../utils/mediaStorage';
 
 const VideoQuestion = ( { question, onComplete } ) => {
     const [isRecording, setIsRecording] = useState( false );
@@ -8,6 +9,7 @@ const VideoQuestion = ( { question, onComplete } ) => {
     const [timeLeft, setTimeLeft] = useState( 60 );
     const mediaRecorderRef = useRef( null );
     const timerRef = useRef( null );
+    const webcamRef = useRef( null );
 
     const handleStartRecording = () => {
         setRecordedChunks( [] );
@@ -15,7 +17,9 @@ const VideoQuestion = ( { question, onComplete } ) => {
         setTimeLeft( 60 );
 
         const stream = webcamRef.current.video.srcObject;
-        const mediaRecorder = new MediaRecorder( stream );
+        const mediaRecorder = new MediaRecorder( stream, {
+            mimeType: 'video/webm;codecs=vp9'
+        } );
         mediaRecorderRef.current = mediaRecorder;
 
         mediaRecorder.ondataavailable = ( event ) => {
@@ -24,7 +28,7 @@ const VideoQuestion = ( { question, onComplete } ) => {
             }
         };
 
-        mediaRecorder.start();
+        mediaRecorder.start( 1000 ); // Capture chunks every second
 
         timerRef.current = setInterval( () => {
             setTimeLeft( ( prev ) => {
@@ -37,19 +41,18 @@ const VideoQuestion = ( { question, onComplete } ) => {
         }, 1000 );
     };
 
-    const handleStopRecording = () => {
+    const handleStopRecording = async () => {
         clearInterval( timerRef.current );
         mediaRecorderRef.current.stop();
         setIsRecording( false );
 
-        setTimeout( () => {
+        // Wait for the last chunk
+        setTimeout( async () => {
             const blob = new Blob( recordedChunks, { type: 'video/webm' } );
-            const url = URL.createObjectURL( blob );
-            onComplete( url );
-        }, 100 );
+          const base64data = await storeMediaBlob( blob, 'video' );
+          onComplete( base64data );
+      }, 200 );
     };
-
-    const webcamRef = useRef( null );
 
     return (
         <div className="max-w-2xl mx-auto p-6">
@@ -59,6 +62,12 @@ const VideoQuestion = ( { question, onComplete } ) => {
                     ref={ webcamRef }
                     audio={ true }
                     className="w-full rounded-lg shadow-lg"
+                    videoConstraints={ {
+                        width: 1280,
+                        height: 720,
+                        facingMode: "user"
+                    } }
+                    mirrored={ true }
                 />
                 { isRecording && (
                     <div className="absolute top-4 right-4 bg-red-500 text-white px-3 py-1 rounded-full">
