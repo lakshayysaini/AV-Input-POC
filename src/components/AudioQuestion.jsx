@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { FaMicrophone, FaStop } from 'react-icons/fa';
-import WaveSurfer from 'wavesurfer.js';
 import { storeMediaBlob } from '../utils/mediaStorage';
 
 const AudioQuestion = ({ question, onComplete }) => {
@@ -9,46 +8,66 @@ const AudioQuestion = ({ question, onComplete }) => {
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
   const timerRef = useRef(null);
-  const waveformRef = useRef(null);
-  const wavesurferRef = useRef(null);
+    const canvasRef = useRef( null );
     const audioContextRef = useRef( null );
     const analyserRef = useRef( null );
-    const dataArrayRef = useRef( null );
     const animationFrameRef = useRef( null );
 
   useEffect(() => {
-    wavesurferRef.current = WaveSurfer.create({
-      container: waveformRef.current,
-      waveColor: '#4F46E5',
-      progressColor: '#818CF8',
-      cursorColor: '#C7D2FE',
-      barWidth: 2,
-      barRadius: 3,
-      cursorWidth: 1,
-      height: 100,
-      barGap: 3,
-    });
+      const canvas = canvasRef.current;
+      const ctx = canvas.getContext( '2d' );
+
+      // Set canvas size
+      canvas.width = canvas.offsetWidth;
+      canvas.height = canvas.offsetHeight;
 
       return () => {
-          wavesurferRef.current.destroy();
-          if ( audioContextRef.current ) {
-              audioContextRef.current.close();
-          }
-          if ( animationFrameRef.current ) {
-              cancelAnimationFrame( animationFrameRef.current );
-          }
-      };
+        if ( audioContextRef.current ) {
+            audioContextRef.current.close();
+        }
+        if ( animationFrameRef.current ) {
+            cancelAnimationFrame( animationFrameRef.current );
+        }
+    };
   }, []);
 
     const drawWaveform = () => {
-        if ( !analyserRef.current || !wavesurferRef.current ) return;
+      if ( !analyserRef.current || !canvasRef.current ) return;
 
-        analyserRef.current.getByteTimeDomainData( dataArrayRef.current );
-        const values = Array.from( dataArrayRef.current ).map( v => ( v / 128.0 ) - 1.0 );
+      const canvas = canvasRef.current;
+      const ctx = canvas.getContext( '2d' );
+      const bufferLength = analyserRef.current.frequencyBinCount;
+      const dataArray = new Uint8Array( bufferLength );
 
-        wavesurferRef.current.setWaveform( values, 48000 );
-        animationFrameRef.current = requestAnimationFrame( drawWaveform );
-    };
+      analyserRef.current.getByteTimeDomainData( dataArray );
+
+      ctx.fillStyle = 'rgb(240, 240, 240)';
+      ctx.fillRect( 0, 0, canvas.width, canvas.height );
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#4F46E5';
+      ctx.beginPath();
+
+      const sliceWidth = canvas.width / bufferLength;
+      let x = 0;
+
+      for ( let i = 0; i < bufferLength; i++ ) {
+          const v = dataArray[i] / 128.0;
+          const y = ( v * canvas.height ) / 2;
+
+          if ( i === 0 ) {
+              ctx.moveTo( x, y );
+          } else {
+              ctx.lineTo( x, y );
+          }
+
+          x += sliceWidth;
+      }
+
+      ctx.lineTo( canvas.width, canvas.height / 2 );
+      ctx.stroke();
+
+      animationFrameRef.current = requestAnimationFrame( drawWaveform );
+  };
 
   const handleStartRecording = async () => {
     try {
@@ -61,11 +80,9 @@ const AudioQuestion = ({ question, onComplete }) => {
         analyserRef.current.fftSize = 2048;
         source.connect( analyserRef.current );
 
-        dataArrayRef.current = new Uint8Array( analyserRef.current.frequencyBinCount );
-
         const mediaRecorder = new MediaRecorder( stream, {
             mimeType: 'audio/webm;codecs=opus'
-        } );
+      } );
       mediaRecorderRef.current = mediaRecorder;
       chunksRef.current = [];
 
@@ -95,29 +112,37 @@ const AudioQuestion = ({ question, onComplete }) => {
 
     const handleStopRecording = async () => {
     clearInterval(timerRef.current);
-        if ( animationFrameRef.current ) {
-            cancelAnimationFrame( animationFrameRef.current );
-        }
-        if ( audioContextRef.current ) {
-            audioContextRef.current.close();
-        }
+      if ( animationFrameRef.current ) {
+          cancelAnimationFrame( animationFrameRef.current );
+      }
+      if ( audioContextRef.current ) {
+          audioContextRef.current.close();
+      }
 
     mediaRecorderRef.current.stop();
     setIsRecording(false);
 
-        // Wait for the last chunk
-        setTimeout( async () => {
-            const blob = new Blob( chunksRef.current, { type: 'audio/webm' } );
-            const base64data = await storeMediaBlob( blob, 'audio' );
-            onComplete( base64data );
-        }, 200 );
+      // Wait for the last chunk
+      setTimeout( async () => {
+          const blob = new Blob( chunksRef.current, { type: 'audio/webm' } );
+          const base64data = await storeMediaBlob( blob, 'audio' );
+          onComplete( base64data );
+      }, 200 );
   };
 
   return (
     <div className="max-w-2xl mx-auto p-6">
       <h2 className="text-2xl font-bold mb-4">{question}</h2>
-      <div className="bg-gray-50 p-6 rounded-lg">
-        <div ref={waveformRef} className="mb-4" />
+          <div className="bg-gray-50 p-6 rounded-lg relative">
+              { isRecording && (
+                  <div className="absolute top-4 right-4 bg-red-500 text-white px-3 py-1 rounded-full">
+                      { timeLeft }s
+                  </div>
+              ) }
+              <canvas
+                  ref={ canvasRef }
+                  className="w-full h-[100px] mb-4 rounded border border-gray-200"
+              />
         <div className="flex justify-center">
           {!isRecording ? (
             <button
@@ -133,7 +158,7 @@ const AudioQuestion = ({ question, onComplete }) => {
               className="flex items-center space-x-2 bg-red-500 text-white px-6 py-3 rounded-lg hover:bg-red-600 transition-colors"
             >
               <FaStop />
-              <span>Stop Recording ({timeLeft}s)</span>
+                              <span>Stop Recording</span>
             </button>
           )}
         </div>
