@@ -73,7 +73,6 @@ const AudioQuestion = ({ question, onComplete }) => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-        // Set up audio context and analyser
         audioContextRef.current = new ( window.AudioContext || window.webkitAudioContext )();
         const source = audioContextRef.current.createMediaStreamSource( stream );
         analyserRef.current = audioContextRef.current.createAnalyser();
